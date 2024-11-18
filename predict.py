@@ -21,7 +21,12 @@ from deep_sort_pytorch.deep_sort import DeepSort
 from collections import deque
 import numpy as np
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
+
+max_y_detect = 200
+
 data_deque = {}
+labeled_count = {}
+is_recording = []
 
 deepsort = None
 
@@ -191,6 +196,9 @@ class DetectionPredictor(BasePredictor):
         return preds
 
     def write_results(self, idx, preds, batch):
+
+        global is_recording
+
         p, im, im0 = batch
         all_outputs = []
         log_string = ""
@@ -233,13 +241,56 @@ class DetectionPredictor(BasePredictor):
         confss = torch.Tensor(confs)
           
         outputs = deepsort.update(xywhs, confss, oids, im0)
-        if len(outputs) > 0:
-            bbox_xyxy = outputs[:, :4]
-            identities = outputs[:, -2]
-            object_id = outputs[:, -1]
-            
-            draw_boxes(im0, bbox_xyxy, self.model.names, object_id,identities)
 
+        # Add a baseline for counting purposes
+        # Caluculation height px: 600
+
+
+        im0 = cv2.line(im0, (50, max_y_detect), (800, max_y_detect), color=(255, 0, 0), thickness=2)
+
+        if len(outputs) > 0:
+            # One Frame
+            bbox_xyxy = outputs[:, :4]
+            identities = outputs[:, -2]     # Identify individual Object
+            object_id = outputs[:, -1]      # The class of each object
+
+            # key_strs = [self.model.names[o_id] for o_id in object_id]
+            # im0 = cv2.putText(im0, str(key_strs), (50, 150), cv2.FONT_HERSHEY_COMPLEX, 0.8, (0, 0, 255), 1)
+            # Left-most point is the newest
+            # data_deque_struct = [f"{k}, {v[0]}" for k, v in zip(list(data_deque.keys()), list(data_deque.values()))]
+            id_coords = [(identity, coords[0]) for identity, coords in zip(list(data_deque.keys()), list(data_deque.values()))]
+
+            # identity number => identity index => object id index => object type
+            obj_coords = [
+                (identity, self.model.names[object_id[identities.tolist().index(identity)]], coord)
+                for identity, coord in id_coords if identity in identities]
+
+            for identity, obj_name, coord in obj_coords:
+                if max_y_detect - 2.5 <= coord[1] <= max_y_detect + 2.5:
+                    if obj_name not in labeled_count:
+                        labeled_count[obj_name] = 0
+
+                    if identity in is_recording:
+                        continue
+
+                    labeled_count[obj_name] += 1
+                    is_recording.append(identity)
+
+                elif coord[1] > 602.5:
+                    is_recording = [x for x in is_recording if x != identity]
+
+            # im0 = cv2.putText(im0, str(obj_coords), (50, 180), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
+
+            draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities)
+            # cv2.putText(im0, str(labeled_count), (10, 20), cv2.FONT_HERSHEY_COMPLEX, 0.1, (255, 255, 255), 1)
+            cv2.putText(im0,
+                        str(labeled_count),
+                        (10,20),
+                        0,
+                        0.5,
+                        [225, 255, 0],
+                        thickness=1,
+                        lineType=cv2.LINE_AA)
         return log_string
 
 
