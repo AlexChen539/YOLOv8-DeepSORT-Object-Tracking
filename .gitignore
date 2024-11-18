@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.idea/
+
+# Files
+*.mp4
 
 # C extensions
 *.so
